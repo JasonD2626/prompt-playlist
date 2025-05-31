@@ -92,10 +92,10 @@ export default function Home() {
         </div>
       )}
 
-      <div className="mt-8 flex justify-center">
+     <div className="mt-8 flex justify-center">
         <button
           onClick={() => signOut()}
-          className="text-red-500 underline"
+          className="text-red-500 underline cursor-pointer"
         >
           Logout
         </button>
