@@ -9,21 +9,23 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "15.3.2",
+    "next": "^15.3.2",
     "next-auth": "^4.24.11",
     "nprogress": "^0.2.0",
     "openai": "^4.103.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "spotify-web-api-node": "^5.0.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^20.17.57",
     "@types/nprogress": "^0.2.3",
-    "@types/react": "^19",
+    "@types/react": "^19.1.6",
     "@types/react-dom": "^19",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.4",
+    "tailwindcss": "^4.1.8",
+    "typescript": "^5.8.3"
   }
 }
