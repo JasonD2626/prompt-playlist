@@ -1,5 +1,3 @@
-// src/app/api/create-playlist/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import OpenAI from "openai";
@@ -18,7 +16,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing prompt" }, { status: 400 });
     }
 
-    // 3) Call OpenAI to generate song/artist suggestions
+    // 3) Generate track suggestions from OpenAI
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
     const aiResponse = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
@@ -31,39 +29,48 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    // 4) Extract the list of suggestions
     const suggestionText = aiResponse.choices[0]?.message?.content || "";
     const queries = suggestionText
       .split("\n")
       .map((line) => line.replace(/^\d+\.\s*/, "").trim())
       .filter(Boolean);
 
-    // 5) Build Spotify‐request headers
     const headers = {
       Authorization: `Bearer ${token.accessToken}`,
       "Content-Type": "application/json",
     };
 
-    // 6) Search Spotify for each query to get a track URI
+    // 4) Search Spotify for each suggestion, skip karaoke/tribute results
     const uris: string[] = [];
     for (const query of queries) {
       const searchRes = await fetch(
-        `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`,
+        `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=5`,
         { headers }
       );
       const searchData = await searchRes.json();
-      const track = searchData.tracks?.items?.[0];
+      const track = searchData.tracks?.items?.find(
+        (t: any) =>
+          !/karaoke|tribute|cover|made famous|originally performed/i.test(t.name) &&
+          !/karaoke|tribute|cover|party tyme/i.test(t.artists[0]?.name)
+      );
       if (track) {
         uris.push(track.uri);
       }
     }
 
-    // 7) Get the current user’s ID so we can create a playlist
+    if (uris.length === 0) {
+      return NextResponse.json(
+        { error: "No valid songs found for this prompt." },
+        { status: 500 }
+      );
+    }
+
+    // 5) Get current user ID
     const userRes = await fetch("https://api.spotify.com/v1/me", { headers });
     const userData = await userRes.json();
     const userId = userData.id;
 
-    // 8) Create a new playlist on Spotify
+    // 6) Create new playlist
     const playlistRes = await fetch(
       `https://api.spotify.com/v1/users/${userId}/playlists`,
       {
@@ -78,18 +85,31 @@ export async function POST(req: NextRequest) {
     );
     const playlist = await playlistRes.json();
 
-    // 9) Add the tracks to that newly created playlist
+    // 7) Add tracks to playlist
     await fetch(`https://api.spotify.com/v1/playlists/${playlist.id}/tracks`, {
       method: "POST",
       headers,
       body: JSON.stringify({ uris }),
     });
 
-    // 10) Grab the playlist’s published web URL
-    // Here is where you must declare “playlistUrl” so it actually exists:
-    const playlistUrl = playlist.external_urls.spotify;
+    // 8) Wait until playlist is populated before returning URL
+    let tries = 0;
+    let isReady = false;
+    while (tries < 5 && !isReady) {
+      await new Promise((res) => setTimeout(res, 1500));
+      const check = await fetch(
+        `https://api.spotify.com/v1/playlists/${playlist.id}`,
+        { headers }
+      );
+      const data = await check.json();
+      if (data?.tracks?.items?.length > 0) {
+        isReady = true;
+      }
+      tries++;
+    }
 
-    // 11) Return it as JSON so the client can embed or link to it
+    // 9) Return public Spotify URL
+    const playlistUrl = playlist.external_urls.spotify;
     return NextResponse.json({ url: playlistUrl });
   } catch (err: any) {
     console.error("create-playlist error:", err);

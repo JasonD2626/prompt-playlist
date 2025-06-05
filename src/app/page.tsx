@@ -7,7 +7,6 @@ import NProgress from "nprogress";
 import "nprogress/nprogress.css";
 
 import DJIntro from "../components/DJIntro";
-// If you still want loading/error personality, keep this; otherwise you can remove it.
 import DJPersona from "../components/DJPersona";
 import { useCreatePlaylist } from "../hooks/useCreatePlaylist";
 
@@ -76,10 +75,6 @@ export default function Home() {
         `}
       >
         <form onSubmit={handleSubmit} className="max-w-xl mx-auto">
-          {/* 
-            Note: we show only the input; we rely on 'Enter' to submit,
-            so no separate button is needed here.
-          */}
           <input
             type="text"
             value={prompt}
@@ -102,27 +97,40 @@ export default function Home() {
       </div>
 
       {/* ===== Section 4: Display the Playlist (if generated) ===== */}
-      {url && (
-        <div className="mt-8 flex justify-center">
-          <iframe
-            src={`https://open.spotify.com/embed/playlist/${url.split("/").pop()}`}
-            width="300"
-            height="380"
-            allow="encrypted-media"
-            className="rounded-lg shadow-md"
-          />
-        </div>
-      )}
+{url && (
+  <>
+    <div className="mt-8 flex justify-center">
+      <iframe
+        src={url.replace("https://open.spotify.com/", "https://open.spotify.com/embed/")}
+        width="300"
+        height="380"
+        allow="encrypted-media"
+        className="rounded-lg shadow-md"
+      />
+    </div>
 
-      {/* ===== Section 5: Logout Button ===== */}
-      <div className="mt-8 flex justify-center">
-        <button
-          onClick={() => signOut()}
-          className="text-red-500 underline cursor-pointer"
-        >
-          Logout
-        </button>
-      </div>
+    {/* ===== Section 4.5: Regenerate Button ===== */}
+    <div className="mt-4 flex justify-center">
+      <button
+        onClick={handleSubmit}
+        className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+      >
+        Don’t like this playlist? I can work my magic again...
+      </button>
+    </div>
+  </>
+)}
+
+{/* ===== Section 5: Logout Button ===== */}
+<div className="mt-8 flex justify-center">
+  <button
+    onClick={() => signOut()}
+    className="text-red-500 underline cursor-pointer"
+  >
+    Logout
+  </button>
+</div>
+
     </main>
   );
 }

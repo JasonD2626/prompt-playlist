@@ -24,17 +24,17 @@ export default function DJPersona({ loading, error }: DJPersonaProps) {
 
   return (
     <div className="flex flex-col items-center mb-4 space-y-2">
-      {/* Loading Message: DJ Scraps is spinning your tracks */}
+      {/* Loading Message: DJ Z is spinning your tracks */}
       {loading && (
         <p className="text-yellow-600 font-bold animate-pulse">
-          DJ Scraps is spinning your tracks… hold tight!
+          DJ Z is spinning your tracks… hold tight!
         </p>
       )}
 
       {/* Error Message: Themed “dropped the beat” style */}
       {error && (
         <p className="text-red-500 bg-red-100 px-3 py-1 rounded-lg">
-          Oops! DJ Scraps dropped the beat: {error}
+          Oops! DJ Z dropped the beat: {error}
         </p>
       )}s
       
