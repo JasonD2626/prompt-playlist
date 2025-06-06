@@ -5,7 +5,7 @@
 
 Inspired by Spotify's DJ, but entirely your own.
 
-🔗 [Live Demo](https://prompt-playlist.vercel.app)
+[Live Demo](https://prompt-playlist.vercel.app)
 
 ---
 
