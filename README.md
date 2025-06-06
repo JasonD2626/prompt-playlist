@@ -79,7 +79,7 @@ npm run dev
 The app will start locally at `http://localhost:3000`.
 
 
-### 🛰️ Deployment 
+## Deployment 
 
 This app is optimized for Vercel.
 
