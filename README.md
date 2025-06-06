@@ -62,7 +62,7 @@ Inspired by Spotify's DJ, but entirely your own.
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/yourhandle/dj-z.git
+git clone https://github.com/JasonD2626/prompt-playlist
 cd dj-z
 npm install
 ```
