@@ -8,6 +8,8 @@ Inspired by Spotify's DJ, but entirely your own.
 <img width="1512" alt="SCR-20250606-muhg" src="https://github.com/user-attachments/assets/095742f6-edb1-4282-8644-10bfd005b86c" />
 
 
+
+
 [Live Demo](https://prompt-playlist.vercel.app)
 
 ---
