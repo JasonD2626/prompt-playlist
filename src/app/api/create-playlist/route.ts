@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 3) Generate track suggestions from OpenAI
+    console.log("OPENAI KEY (partial):", process.env.OPENAI_API_KEY?.slice(0, 10));
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
     const aiResponse = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
