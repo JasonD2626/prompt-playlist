@@ -5,8 +5,8 @@
 
 Inspired by Spotify's DJ, but entirely your own.
 
-<img width="1512" alt="SCR-20250606-muhg" src="https://github.com/user-attachments/assets/095742f6-edb1-4282-8644-10bfd005b86c" />
 
+<img width="1512" alt="SCR-20250606-muhg" src="https://github.com/user-attachments/assets/2aa97d3e-d2e6-4c74-b35e-4af5dee94d01" />
 
 
 
