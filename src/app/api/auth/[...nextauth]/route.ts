@@ -1,12 +1,10 @@
 import NextAuth from "next-auth";
 import SpotifyProvider from "next-auth/providers/spotify";
-import type { NextAuthOptions } from "next-auth";
 import { JWT } from "next-auth/jwt";
 
 async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
-    const url = "https://accounts.spotify.com/api/token";
-    const res = await fetch(url, {
+    const res = await fetch("https://accounts.spotify.com/api/token", {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -19,21 +17,18 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
       }),
     });
 
-    const refreshedTokens = await res.json();
-    if (!res.ok) throw refreshedTokens;
+    const refreshed = await res.json();
+    if (!res.ok) throw refreshed;
 
     return {
       ...token,
-      accessToken: refreshedTokens.access_token,
-      accessTokenExpires: Date.now() + refreshedTokens.expires_in * 1000,
-      refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
+      accessToken: refreshed.access_token,
+      accessTokenExpires: Date.now() + refreshed.expires_in * 1000,
+      refreshToken: refreshed.refresh_token ?? token.refreshToken,
     };
-  } catch (error) {
-    console.error("Error refreshing access token:", error);
-    return {
-      ...token,
-      error: "RefreshAccessTokenError",
-    };
+  } catch (err) {
+    console.error("Failed to refresh access token", err);
+    return { ...token, error: "RefreshAccessTokenError" };
   }
 }
 
@@ -44,9 +39,8 @@ const handler = NextAuth({
       clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
       authorization: {
         params: {
-          scope: "playlist-modify-public user-read-email",
-          access_type: "offline",
-          prompt: "consent",
+          scope:
+            "user-read-email playlist-modify-private playlist-modify-public",
         },
       },
     }),
@@ -57,8 +51,8 @@ const handler = NextAuth({
         return {
           ...token,
           accessToken: account.access_token,
-          accessTokenExpires: Date.now() + (account as any).expires_in * 1000,
           refreshToken: account.refresh_token,
+          accessTokenExpires: Date.now() + ((account.expires_in as number) ?? 3600) * 1000,
         };
       }
 
@@ -70,7 +64,6 @@ const handler = NextAuth({
     },
     async session({ session, token }) {
       session.accessToken = token.accessToken as string;
-      session.error = token.error;
       return session;
     },
   },
