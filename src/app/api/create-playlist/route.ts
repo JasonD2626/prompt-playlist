@@ -4,96 +4,62 @@ import OpenAI from "openai";
 
 export async function POST(req: NextRequest) {
   try {
-    // 1) Check authentication
-    const token = await getToken({ req });
-    if (!token?.accessToken) {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET! });
+    if (!token || !token.accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 2) Parse the incoming JSON body
     const { prompt } = await req.json();
     if (!prompt) {
       return NextResponse.json({ error: "Missing prompt" }, { status: 400 });
     }
 
-    // 3) Generate track suggestions from OpenAI
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY?.trim(),
-    });
-
-    const aiResponse = await openai.chat.completions.create({
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+    const aiResp = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [
         { role: "system", content: "You are a music expert..." },
         {
           role: "user",
-          content: `Generate a list of 10 songs or artists that fit the vibe: "${prompt}". Respond as a plain numbered list.`,
+          content: `Generate a list of 10 songs or artists that fit the vibe: "${prompt}". Respond as a numbered list.`,
         },
       ],
     });
 
-    const suggestionText = aiResponse.choices[0]?.message?.content || "";
-    console.log("OpenAI suggestionText:", suggestionText);
-
+    const suggestionText = aiResp.choices[0]?.message?.content || "";
     const queries = suggestionText
       .split("\n")
-      .map((line) => line.replace(/^\d+\.\s*/, "").trim())
+      .map((l) => l.replace(/^\d+\.\s*/, "").trim())
       .filter(Boolean);
-
-    console.log("Parsed queries:", queries);
 
     const headers = {
       Authorization: `Bearer ${token.accessToken}`,
       "Content-Type": "application/json",
     };
 
-    // 4) Search Spotify for each suggestion, log issues
     const uris: string[] = [];
-
-    for (const query of queries) {
-      try {
-        const searchRes = await fetch(
-          `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=5`,
-          { headers }
-        );
-
-        if (!searchRes.ok) {
-          const errorText = await searchRes.text();
-          console.error(`Spotify search failed for "${query}":`, errorText);
-          continue;
-        }
-
-        const searchData = await searchRes.json();
-
-        const track = searchData.tracks?.items?.find(
-          (t: any) =>
-            !/karaoke|tribute|cover|made famous|originally performed/i.test(t.name) &&
-            !/karaoke|tribute|cover|party tyme/i.test(t.artists[0]?.name)
-        );
-
-        if (track) {
-          uris.push(track.uri);
-        } else {
-          console.warn(`No suitable track found for "${query}".`);
-        }
-      } catch (err) {
-        console.error(`Error searching for "${query}":`, err);
-      }
+    for (const q of queries) {
+      const res = await fetch(
+        `https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=5`,
+        { headers }
+      );
+      const data = await res.json();
+      const track = data.tracks?.items?.find(
+        (t: any) =>
+          !/karaoke|tribute|cover|made famous|originally performed/i.test(t.name) &&
+          !/karaoke|tribute|cover/i.test(t.artists[0]?.name)
+      );
+      if (track) uris.push(track.uri);
     }
 
     if (uris.length === 0) {
-      return NextResponse.json(
-        { error: "No valid songs found for this prompt." },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "No valid songs found." }, { status: 404 });
     }
 
-    // 5) Get current user ID
-    const userRes = await fetch("https://api.spotify.com/v1/me", { headers });
-    const userData = await userRes.json();
-    const userId = userData.id;
+    const meRes = await fetch("https://api.spotify.com/v1/me", { headers });
+    const meData = await meRes.json();
+    const userId = meData.id;
 
-    // 6) Create new playlist
     const playlistRes = await fetch(
       `https://api.spotify.com/v1/users/${userId}/playlists`,
       {
@@ -106,39 +72,17 @@ export async function POST(req: NextRequest) {
         }),
       }
     );
-
     const playlist = await playlistRes.json();
 
-    // 7) Add tracks to playlist
     await fetch(`https://api.spotify.com/v1/playlists/${playlist.id}/tracks`, {
       method: "POST",
       headers,
       body: JSON.stringify({ uris }),
     });
 
-    // 8) Confirm playlist has content
-    let tries = 0;
-    let isReady = false;
-    while (tries < 5 && !isReady) {
-      await new Promise((res) => setTimeout(res, 1500));
-      const check = await fetch(
-        `https://api.spotify.com/v1/playlists/${playlist.id}`,
-        { headers }
-      );
-      const data = await check.json();
-      if (data?.tracks?.items?.length > 0) {
-        isReady = true;
-      }
-      tries++;
-    }
-
-    // 9) Return playlist URL
     return NextResponse.json({ url: playlist.external_urls.spotify });
   } catch (err: any) {
     console.error("create-playlist error:", err);
-    return NextResponse.json(
-      { error: "Internal Server Error", details: err.message || "" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error", details: err.message }, { status: 500 });
   }
 }
