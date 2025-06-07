@@ -17,7 +17,10 @@ export async function POST(req: NextRequest) {
     }
 
     // 3) Generate track suggestions from OpenAI
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY!.trim() });
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY?.trim(),
+    });
+
     const aiResponse = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [
@@ -30,40 +33,51 @@ export async function POST(req: NextRequest) {
     });
 
     const suggestionText = aiResponse.choices[0]?.message?.content || "";
+    console.log("OpenAI suggestionText:", suggestionText);
+
     const queries = suggestionText
       .split("\n")
       .map((line) => line.replace(/^\d+\.\s*/, "").trim())
       .filter(Boolean);
+
+    console.log("Parsed queries:", queries);
 
     const headers = {
       Authorization: `Bearer ${token.accessToken}`,
       "Content-Type": "application/json",
     };
 
-    // 4) Search Spotify for each suggestion
+    // 4) Search Spotify for each suggestion, log issues
     const uris: string[] = [];
+
     for (const query of queries) {
-      const searchRes = await fetch(
-        `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=5`,
-        { headers }
-      );
-      const searchData = await searchRes.json();
-      const items = searchData.tracks?.items || [];
+      try {
+        const searchRes = await fetch(
+          `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=5`,
+          { headers }
+        );
 
-      // First try filtering bad tracks
-      let track = items.find(
-        (t: any) =>
-          !/karaoke|tribute|cover|made famous|originally performed/i.test(t.name) &&
-          !/karaoke|tribute|cover|party tyme/i.test(t.artists?.[0]?.name)
-      );
+        if (!searchRes.ok) {
+          const errorText = await searchRes.text();
+          console.error(`Spotify search failed for "${query}":`, errorText);
+          continue;
+        }
 
-      // If all are filtered, fallback to first result
-      if (!track && items.length > 0) {
-        track = items[0];
-      }
+        const searchData = await searchRes.json();
 
-      if (track) {
-        uris.push(track.uri);
+        const track = searchData.tracks?.items?.find(
+          (t: any) =>
+            !/karaoke|tribute|cover|made famous|originally performed/i.test(t.name) &&
+            !/karaoke|tribute|cover|party tyme/i.test(t.artists[0]?.name)
+        );
+
+        if (track) {
+          uris.push(track.uri);
+        } else {
+          console.warn(`No suitable track found for "${query}".`);
+        }
+      } catch (err) {
+        console.error(`Error searching for "${query}":`, err);
       }
     }
 
@@ -92,6 +106,7 @@ export async function POST(req: NextRequest) {
         }),
       }
     );
+
     const playlist = await playlistRes.json();
 
     // 7) Add tracks to playlist
@@ -101,7 +116,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({ uris }),
     });
 
-    // 8) Wait until playlist is populated before returning URL
+    // 8) Confirm playlist has content
     let tries = 0;
     let isReady = false;
     while (tries < 5 && !isReady) {
@@ -117,9 +132,8 @@ export async function POST(req: NextRequest) {
       tries++;
     }
 
-    // 9) Return public Spotify URL
-    const playlistUrl = playlist.external_urls.spotify;
-    return NextResponse.json({ url: playlistUrl });
+    // 9) Return playlist URL
+    return NextResponse.json({ url: playlist.external_urls.spotify });
   } catch (err: any) {
     console.error("create-playlist error:", err);
     return NextResponse.json(
