@@ -17,35 +17,19 @@ export async function POST(req: NextRequest) {
     }
 
     // 3) Generate track suggestions from OpenAI
-    const openaiKey = process.env.OPENAI_API_KEY?.trim();
-    if (!openaiKey) {
-      return NextResponse.json({ error: "Missing OpenAI API Key" }, { status: 500 });
-    }
-
-    console.log("OPENAI KEY (partial):", openaiKey.slice(0, 10));
-    const openai = new OpenAI({ apiKey: openaiKey });
-
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY!.trim() });
     const aiResponse = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [
         { role: "system", content: "You are a music expert..." },
         {
           role: "user",
-          content: `Generate a list of 10 popular songs or artists that match this vibe: "${prompt}". Respond with a plain numbered list.`,
+          content: `Generate a list of 10 songs or artists that fit the vibe: "${prompt}". Respond as a plain numbered list.`,
         },
       ],
     });
 
-    const suggestionText = aiResponse.choices?.[0]?.message?.content || "";
-    console.log("OpenAI suggestionText:", suggestionText);
-
-    if (!suggestionText || suggestionText.length < 10) {
-      return NextResponse.json(
-        { error: "OpenAI returned an invalid or empty suggestion list." },
-        { status: 500 }
-      );
-    }
-
+    const suggestionText = aiResponse.choices[0]?.message?.content || "";
     const queries = suggestionText
       .split("\n")
       .map((line) => line.replace(/^\d+\.\s*/, "").trim())
@@ -64,11 +48,20 @@ export async function POST(req: NextRequest) {
         { headers }
       );
       const searchData = await searchRes.json();
-      const track = searchData.tracks?.items?.find(
+      const items = searchData.tracks?.items || [];
+
+      // First try filtering bad tracks
+      let track = items.find(
         (t: any) =>
           !/karaoke|tribute|cover|made famous|originally performed/i.test(t.name) &&
-          !/karaoke|tribute|cover|party tyme/i.test(t.artists[0]?.name)
+          !/karaoke|tribute|cover|party tyme/i.test(t.artists?.[0]?.name)
       );
+
+      // If all are filtered, fallback to first result
+      if (!track && items.length > 0) {
+        track = items[0];
+      }
+
       if (track) {
         uris.push(track.uri);
       }
@@ -127,14 +120,10 @@ export async function POST(req: NextRequest) {
     // 9) Return public Spotify URL
     const playlistUrl = playlist.external_urls.spotify;
     return NextResponse.json({ url: playlistUrl });
-
   } catch (err: any) {
     console.error("create-playlist error:", err);
     return NextResponse.json(
-      {
-        error: "Internal Server Error",
-        details: err.message || "Unknown error",
-      },
+      { error: "Internal Server Error", details: err.message || "" },
       { status: 500 }
     );
   }
