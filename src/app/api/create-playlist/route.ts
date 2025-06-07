@@ -17,20 +17,35 @@ export async function POST(req: NextRequest) {
     }
 
     // 3) Generate track suggestions from OpenAI
-    console.log("OPENAI KEY (partial):", process.env.OPENAI_API_KEY?.slice(0, 10));
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY!.trim(), });
+    const openaiKey = process.env.OPENAI_API_KEY?.trim();
+    if (!openaiKey) {
+      return NextResponse.json({ error: "Missing OpenAI API Key" }, { status: 500 });
+    }
+
+    console.log("OPENAI KEY (partial):", openaiKey.slice(0, 10));
+    const openai = new OpenAI({ apiKey: openaiKey });
+
     const aiResponse = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [
         { role: "system", content: "You are a music expert..." },
         {
           role: "user",
-          content: `Generate a list of 10 songs or artists that fit the vibe: "${prompt}". Respond as a plain numbered list.`,
+          content: `Generate a list of 10 popular songs or artists that match this vibe: "${prompt}". Respond with a plain numbered list.`,
         },
       ],
     });
 
-    const suggestionText = aiResponse.choices[0]?.message?.content || "";
+    const suggestionText = aiResponse.choices?.[0]?.message?.content || "";
+    console.log("OpenAI suggestionText:", suggestionText);
+
+    if (!suggestionText || suggestionText.length < 10) {
+      return NextResponse.json(
+        { error: "OpenAI returned an invalid or empty suggestion list." },
+        { status: 500 }
+      );
+    }
+
     const queries = suggestionText
       .split("\n")
       .map((line) => line.replace(/^\d+\.\s*/, "").trim())
@@ -41,7 +56,7 @@ export async function POST(req: NextRequest) {
       "Content-Type": "application/json",
     };
 
-    // 4) Search Spotify for each suggestion, skip karaoke/tribute results
+    // 4) Search Spotify for each suggestion
     const uris: string[] = [];
     for (const query of queries) {
       const searchRes = await fetch(
@@ -112,10 +127,14 @@ export async function POST(req: NextRequest) {
     // 9) Return public Spotify URL
     const playlistUrl = playlist.external_urls.spotify;
     return NextResponse.json({ url: playlistUrl });
+
   } catch (err: any) {
     console.error("create-playlist error:", err);
     return NextResponse.json(
-      { error: "Internal Server Error", details: err.message || "" },
+      {
+        error: "Internal Server Error",
+        details: err.message || "Unknown error",
+      },
       { status: 500 }
     );
   }
