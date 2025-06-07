@@ -44,7 +44,9 @@ const handler = NextAuth({
       clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
       authorization: {
         params: {
-          scope: "playlist-modify-public playlist-modify-private user-read-email",
+          scope: "playlist-modify-public user-read-email",
+          access_type: "offline",
+          prompt: "consent",
         },
       },
     }),
