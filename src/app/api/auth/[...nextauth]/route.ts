@@ -5,6 +5,7 @@ import SpotifyProvider from "next-auth/providers/spotify";
 import type { NextAuthOptions } from "next-auth";
 import { JWT } from "next-auth/jwt";
 
+// 🔄 Refresh the Spotify access token
 async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
     const url = "https://accounts.spotify.com/api/token";
@@ -46,15 +47,19 @@ const handler = NextAuth({
       clientId: process.env.SPOTIFY_CLIENT_ID!,
       clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
       authorization: {
+        url: "https://accounts.spotify.com/authorize",
         params: {
           scope: "playlist-modify-public playlist-modify-private user-read-email",
+          prompt: "consent", // ✅ Force re-consent to ensure refresh_token is returned
         },
       },
     }),
   ],
   callbacks: {
     async jwt({ token, account }) {
-      if (account?.provider === "spotify") {
+      // 🧠 Initial sign in
+      if (account) {
+        console.log("Spotify account payload:", account); // Optional: inspect once
         return {
           ...token,
           accessToken: account.access_token,
@@ -63,10 +68,12 @@ const handler = NextAuth({
         };
       }
 
+      // ⏳ Return previous token if still valid
       if (Date.now() < (token.accessTokenExpires as number)) {
         return token;
       }
 
+      // 🔁 Otherwise refresh it
       return await refreshAccessToken(token);
     },
 
