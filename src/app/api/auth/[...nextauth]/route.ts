@@ -1,89 +1,160 @@
-// src/app/api/auth/[...nextauth]/route.ts
+// src/app/api/create-playlist/route.ts
 
-import NextAuth from "next-auth";
-import SpotifyProvider from "next-auth/providers/spotify";
-import type { NextAuthOptions } from "next-auth";
-import { JWT } from "next-auth/jwt";
+import { NextRequest, NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-// 🔄 Refresh the Spotify access token
-async function refreshAccessToken(token: JWT): Promise<JWT> {
-  try {
-    const url = "https://accounts.spotify.com/api/token";
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: token.refreshToken as string,
-        client_id: process.env.SPOTIFY_CLIENT_ID!,
-        client_secret: process.env.SPOTIFY_CLIENT_SECRET!,
-      }),
-    });
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET!;
+const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID!;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET!;
 
-    const refreshedTokens = await res.json();
-
-    if (!res.ok) throw refreshedTokens;
-
-    return {
-      ...token,
-      accessToken: refreshedTokens.access_token,
-      accessTokenExpires: Date.now() + refreshedTokens.expires_in * 1000,
-      refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
-    };
-  } catch (error) {
-    console.error("Error refreshing access token:", error);
-    return {
-      ...token,
-      error: "RefreshAccessTokenError",
-    };
+// Helper to refresh an expired Spotify token
+async function refreshSpotifyToken(refreshToken: string) {
+  const res = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: SPOTIFY_CLIENT_ID,
+      client_secret: SPOTIFY_CLIENT_SECRET,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(`Spotify refresh error: ${JSON.stringify(err)}`);
   }
+  return await res.json(); // { access_token, expires_in, refresh_token? }
 }
 
-const handler = NextAuth({
-  providers: [
-    SpotifyProvider({
-      clientId: process.env.SPOTIFY_CLIENT_ID!,
-      clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
-      authorization: {
-        url: "https://accounts.spotify.com/authorize",
-        params: {
-          scope: "playlist-modify-public playlist-modify-private user-read-email",
-          prompt: "consent", // ✅ Force re-consent to ensure refresh_token is returned
+export async function POST(req: NextRequest) {
+  try {
+    // 1) Grab the NextAuth JWT, which should include accessToken, expires & refreshToken
+    const token = await getToken({ req, secret: NEXTAUTH_SECRET }) as {
+      accessToken: string;
+      accessTokenExpires: number;
+      refreshToken: string;
+    } | null;
+
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    let { accessToken, accessTokenExpires, refreshToken } = token;
+
+    // 2) If our token is expired, refresh it
+    if (Date.now() >= accessTokenExpires) {
+      try {
+        const refreshed = await refreshSpotifyToken(refreshToken);
+        accessToken = refreshed.access_token;
+        // compute new expiry
+        accessTokenExpires = Date.now() + refreshed.expires_in * 1000;
+        // if Spotify gave us a new refresh_token, swap it in
+        if (refreshed.refresh_token) {
+          refreshToken = refreshed.refresh_token;
+        }
+      } catch (err: any) {
+        console.error("Failed to refresh Spotify token:", err);
+        return NextResponse.json(
+          { error: "Could not refresh Spotify access token" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // 3) Grab the prompt from client
+    const { prompt } = await req.json();
+    if (!prompt) {
+      return NextResponse.json({ error: "Missing prompt" }, { status: 400 });
+    }
+
+    // 4) Call OpenAI to generate song/artist suggestions
+    const openai = new (await import("openai")).OpenAI({
+      apiKey: process.env.OPENAI_API_KEY!,
+    });
+    const aiResp = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: "You are a music expert..." },
+        {
+          role: "user",
+          content: `Generate a list of 10 songs or artists that fit the vibe: "${prompt}". Respond as a numbered list.`,
         },
-      },
-    }),
-  ],
-  callbacks: {
-    async jwt({ token, account }) {
-      // 🧠 Initial sign in
-      if (account) {
-        console.log("Spotify account payload:", account); // Optional: inspect once
-        return {
-          ...token,
-          accessToken: account.access_token,
-          accessTokenExpires: Date.now() + (account as any).expires_in * 1000,
-          refreshToken: account.refresh_token,
-        };
+      ],
+    });
+    const suggestionText = aiResp.choices[0]?.message?.content || "";
+    const queries = suggestionText
+      .split("\n")
+      .map((l) => l.replace(/^\d+\.\s*/, "").trim())
+      .filter(Boolean);
+
+    // 5) Search Spotify for each query
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const uris: string[] = [];
+    for (const q of queries) {
+      const searchRes = await fetch(
+        `https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=5`,
+        { headers }
+      );
+      const data = await searchRes.json();
+      if (data.error) {
+        console.warn(`Spotify search failed for "${q}":`, data.error);
+        continue;
       }
+      // pick first non-karaoke/tribute result
+      const track = data.tracks.items.find(
+        (t: any) =>
+          !/karaoke|tribute|cover|made famous|originally performed/i.test(t.name) &&
+          !/karaoke|tribute|cover/i.test(t.artists[0]?.name)
+      );
+      if (track) uris.push(track.uri);
+    }
 
-      // ⏳ Return previous token if still valid
-      if (Date.now() < (token.accessTokenExpires as number)) {
-        return token;
+    if (uris.length === 0) {
+      return NextResponse.json(
+        { error: "No valid songs found for this prompt." },
+        { status: 404 }
+      );
+    }
+
+    // 6) Get current user’s Spotify ID
+    const meRes = await fetch("https://api.spotify.com/v1/me", { headers });
+    const meData = await meRes.json();
+    const userId = meData.id;
+
+    // 7) Create a playlist
+    const plRes = await fetch(
+      `https://api.spotify.com/v1/users/${userId}/playlists`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: `Prompt: ${prompt}`,
+          description: "Generated by AI DJ",
+          public: false,
+        }),
       }
+    );
+    const playlist = await plRes.json();
 
-      // 🔁 Otherwise refresh it
-      return await refreshAccessToken(token);
-    },
+    // 8) Add tracks
+    await fetch(
+      `https://api.spotify.com/v1/playlists/${playlist.id}/tracks`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ uris }),
+      }
+    );
 
-    async session({ session, token }) {
-      session.accessToken = token.accessToken as string;
-      session.error = token.error;
-      return session;
-    },
-  },
-  secret: process.env.NEXTAUTH_SECRET,
-});
-
-export { handler as GET, handler as POST };
+    // 9) Return the embed‐ready URL
+    return NextResponse.json({
+      url: playlist.external_urls.spotify,
+    });
+  } catch (err: any) {
+    console.error("create-playlist error:", err);
+    return NextResponse.json(
+      { error: "Internal Server Error", details: err.message },
+      { status: 500 }
+    );
+  }
+}
