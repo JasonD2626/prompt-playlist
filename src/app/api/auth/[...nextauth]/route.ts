@@ -1,36 +1,6 @@
 import NextAuth from "next-auth";
 import SpotifyProvider from "next-auth/providers/spotify";
-import { JWT } from "next-auth/jwt";
-
-async function refreshAccessToken(token: JWT): Promise<JWT> {
-  try {
-    const res = await fetch("https://accounts.spotify.com/api/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: token.refreshToken as string,
-        client_id: process.env.SPOTIFY_CLIENT_ID!,
-        client_secret: process.env.SPOTIFY_CLIENT_SECRET!,
-      }),
-    });
-
-    const refreshed = await res.json();
-    if (!res.ok) throw refreshed;
-
-    return {
-      ...token,
-      accessToken: refreshed.access_token,
-      accessTokenExpires: Date.now() + refreshed.expires_in * 1000,
-      refreshToken: refreshed.refresh_token ?? token.refreshToken,
-    };
-  } catch (err) {
-    console.error("Failed to refresh access token", err);
-    return { ...token, error: "RefreshAccessTokenError" };
-  }
-}
+import type { NextAuthOptions } from "next-auth";
 
 const handler = NextAuth({
   providers: [
@@ -39,8 +9,9 @@ const handler = NextAuth({
       clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
       authorization: {
         params: {
-          scope:
-            "user-read-email playlist-modify-private playlist-modify-public",
+          scope: "playlist-modify-public playlist-modify-private user-read-email",
+          response_type: "code",
+          show_dialog: true,
         },
       },
     }),
@@ -48,19 +19,10 @@ const handler = NextAuth({
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
-        return {
-          ...token,
-          accessToken: account.access_token,
-          refreshToken: account.refresh_token,
-          accessTokenExpires: Date.now() + ((account.expires_in as number) ?? 3600) * 1000,
-        };
+        token.accessToken = account.access_token;
+        // No refresh token or expiration logic
       }
-
-      if (Date.now() < (token.accessTokenExpires as number)) {
-        return token;
-      }
-
-      return await refreshAccessToken(token);
+      return token;
     },
     async session({ session, token }) {
       session.accessToken = token.accessToken as string;
